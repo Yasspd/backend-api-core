@@ -22,15 +22,15 @@ export declare class TargetsService {
             targetId: string;
         }[];
     } & {
-        selector: string | null;
         id: string;
         url: string;
-        createdAt: Date;
-        updatedAt: Date;
+        selector: string | null;
         targetPrice: Prisma.Decimal;
-        userId: string;
         currentPrice: Prisma.Decimal | null;
         status: import(".prisma/client").$Enums.TargetStatus;
+        createdAt: Date;
+        updatedAt: Date;
+        userId: string;
     }>;
     listTargets(userId: string): Promise<({
         priceHistory: {
@@ -40,15 +40,15 @@ export declare class TargetsService {
             targetId: string;
         }[];
     } & {
-        selector: string | null;
         id: string;
         url: string;
-        createdAt: Date;
-        updatedAt: Date;
+        selector: string | null;
         targetPrice: Prisma.Decimal;
-        userId: string;
         currentPrice: Prisma.Decimal | null;
         status: import(".prisma/client").$Enums.TargetStatus;
+        createdAt: Date;
+        updatedAt: Date;
+        userId: string;
     })[]>;
     processFallbackHtml(userId: string, targetId: string, dto: FallbackHtmlDto): Promise<{
         priceHistory: {
@@ -58,15 +58,15 @@ export declare class TargetsService {
             targetId: string;
         }[];
     } & {
-        selector: string | null;
         id: string;
         url: string;
-        createdAt: Date;
-        updatedAt: Date;
+        selector: string | null;
         targetPrice: Prisma.Decimal;
-        userId: string;
         currentPrice: Prisma.Decimal | null;
         status: import(".prisma/client").$Enums.TargetStatus;
+        createdAt: Date;
+        updatedAt: Date;
+        userId: string;
     }>;
     refreshActiveTargets(): Promise<void>;
     private refreshSingleTarget;

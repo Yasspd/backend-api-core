@@ -13,15 +13,15 @@ export declare class TargetsController {
             targetId: string;
         }[];
     } & {
-        selector: string | null;
         id: string;
         url: string;
-        createdAt: Date;
-        updatedAt: Date;
+        selector: string | null;
         targetPrice: import("@prisma/client/runtime/library").Decimal;
-        userId: string;
         currentPrice: import("@prisma/client/runtime/library").Decimal | null;
         status: import(".prisma/client").$Enums.TargetStatus;
+        createdAt: Date;
+        updatedAt: Date;
+        userId: string;
     }>;
     listTargets(request: RequestWithUser): Promise<({
         priceHistory: {
@@ -31,15 +31,15 @@ export declare class TargetsController {
             targetId: string;
         }[];
     } & {
-        selector: string | null;
         id: string;
         url: string;
-        createdAt: Date;
-        updatedAt: Date;
+        selector: string | null;
         targetPrice: import("@prisma/client/runtime/library").Decimal;
-        userId: string;
         currentPrice: import("@prisma/client/runtime/library").Decimal | null;
         status: import(".prisma/client").$Enums.TargetStatus;
+        createdAt: Date;
+        updatedAt: Date;
+        userId: string;
     })[]>;
     submitFallbackHtml(request: RequestWithUser, targetId: string, dto: FallbackHtmlDto): Promise<{
         priceHistory: {
@@ -49,14 +49,14 @@ export declare class TargetsController {
             targetId: string;
         }[];
     } & {
-        selector: string | null;
         id: string;
         url: string;
-        createdAt: Date;
-        updatedAt: Date;
+        selector: string | null;
         targetPrice: import("@prisma/client/runtime/library").Decimal;
-        userId: string;
         currentPrice: import("@prisma/client/runtime/library").Decimal | null;
         status: import(".prisma/client").$Enums.TargetStatus;
+        createdAt: Date;
+        updatedAt: Date;
+        userId: string;
     }>;
 }

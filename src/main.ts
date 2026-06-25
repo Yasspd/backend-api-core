@@ -6,6 +6,10 @@ import { json, urlencoded } from 'express';
 import { AppModule } from './app.module';
 import { PrismaService } from './modules/prisma/prisma.service';
 
+(BigInt.prototype as any).toJSON = function () {
+  return this.toString();
+};
+
 async function bootstrap(): Promise<void> {
   // 1. Отключаем дефолтный body-parser NestJS на уровне создания приложения
   const app = await NestFactory.create(AppModule, { bodyParser: false });
