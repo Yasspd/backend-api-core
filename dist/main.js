@@ -4,10 +4,13 @@ require("reflect-metadata");
 const common_1 = require("@nestjs/common");
 const config_1 = require("@nestjs/config");
 const core_1 = require("@nestjs/core");
+const express_1 = require("express");
 const app_module_1 = require("./app.module");
 const prisma_service_1 = require("./modules/prisma/prisma.service");
 async function bootstrap() {
-    const app = await core_1.NestFactory.create(app_module_1.AppModule);
+    const app = await core_1.NestFactory.create(app_module_1.AppModule, { bodyParser: false });
+    app.use((0, express_1.json)({ limit: '50mb' }));
+    app.use((0, express_1.urlencoded)({ limit: '50mb', extended: true }));
     const configService = app.get(config_1.ConfigService);
     const prismaService = app.get(prisma_service_1.PrismaService);
     const port = configService.get('PORT') ?? 3000;
