@@ -1,0 +1,16 @@
+services:
+  postgres_db:
+    image: postgres:17-alpine
+    container_name: my_postgres_container
+    restart: always
+    environment:
+      POSTGRES_USER: petya
+      POSTGRES_PASSWORD: arelun06
+      POSTGRES_DB: psdb-petya
+    ports:
+      - "5432:5432"
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+
+volumes:
+  pg_data:

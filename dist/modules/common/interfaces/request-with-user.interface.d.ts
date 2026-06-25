@@ -1,0 +1,4 @@
+import { JwtPayload } from '../../auth/interfaces/jwt-payload.interface';
+export interface RequestWithUser {
+    user: JwtPayload;
+}

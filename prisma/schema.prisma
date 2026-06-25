@@ -1,0 +1,55 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum TargetStatus {
+  ACTIVE
+  FALLBACK_REQUIRED
+  FAILED
+}
+
+enum TariffType {
+  FREE
+  PREMIUM
+}
+
+model User {
+  id          String     @id @default(uuid())
+  deviceToken String     @unique
+  email       String?    @unique
+  tariff      TariffType @default(FREE)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  targets     Target[]
+}
+
+model Target {
+  id           String         @id @default(uuid())
+  userId       String
+  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  url          String
+  selector     String?
+  targetPrice  Decimal        @db.Decimal(10, 2)
+  currentPrice Decimal?       @db.Decimal(10, 2)
+  status       TargetStatus   @default(ACTIVE)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+  priceHistory PriceHistory[]
+
+  @@index([userId])
+  @@index([status])
+}
+
+model PriceHistory {
+  id        BigInt   @id @default(autoincrement())
+  targetId  String
+  target    Target   @relation(fields: [targetId], references: [id], onDelete: Cascade)
+  price     Decimal  @db.Decimal(10, 2)
+  checkedAt DateTime @default(now())
+
+  @@index([targetId])
+}

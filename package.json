@@ -1,0 +1,53 @@
+{
+  "name": "stealth-scape-agent-backend",
+  "version": "1.0.0",
+  "description": "NestJS modular monolith backend for Stealth Scape Agent",
+  "main": "dist/main.js",
+  "scripts": {
+    "prisma:generate": "prisma generate",
+    "build": "nest build",
+    "build:with-prisma": "npm run prisma:generate && nest build",
+    "start": "nest start",
+    "start:dev": "nest start --watch",
+    "start:prod": "node dist/main",
+    "format": "prettier --write \"src/**/*.ts\"",
+    "lint": "eslint \"{src,test}/**/*.ts\" --fix"
+  },
+  "keywords": [
+    "nestjs",
+    "prisma",
+    "scraper"
+  ],
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@nestjs/common": "^11.1.27",
+    "@nestjs/config": "^4.0.4",
+    "@nestjs/core": "^11.1.27",
+    "@nestjs/jwt": "^11.0.2",
+    "@nestjs/passport": "^11.0.5",
+    "@nestjs/platform-express": "^11.1.27",
+    "@nestjs/schedule": "^5.0.1",
+    "@prisma/adapter-pg": "^7.8.0",
+    "@prisma/client": "^7.8.0",
+    "cheerio": "^1.1.2",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.15.1",
+    "got-scraping": "^4.1.2",
+    "nodemailer": "^7.0.5",
+    "passport": "^0.7.0",
+    "passport-jwt": "^4.0.1",
+    "pg": "^8.21.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^11.0.10",
+    "@types/node": "^25.0.0",
+    "@types/passport-jwt": "^4.0.1",
+    "prisma": "^6.19.3",
+    "ts-node": "^10.9.2",
+    "tsconfig-paths": "^4.2.0",
+    "typescript": "^5.9.3"
+  }
+}
