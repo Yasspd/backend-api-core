@@ -8,55 +8,55 @@ export declare class TargetsController {
     createTarget(request: RequestWithUser, dto: CreateTargetDto): Promise<{
         priceHistory: {
             id: bigint;
-            price: import("@prisma/client-runtime-utils").Decimal;
+            price: import("@prisma/client/runtime/library").Decimal;
             checkedAt: Date;
             targetId: string;
         }[];
     } & {
         selector: string | null;
         id: string;
+        url: string;
         createdAt: Date;
         updatedAt: Date;
-        url: string;
-        targetPrice: import("@prisma/client-runtime-utils").Decimal;
+        targetPrice: import("@prisma/client/runtime/library").Decimal;
         userId: string;
-        currentPrice: import("@prisma/client-runtime-utils").Decimal | null;
+        currentPrice: import("@prisma/client/runtime/library").Decimal | null;
         status: import(".prisma/client").$Enums.TargetStatus;
     }>;
     listTargets(request: RequestWithUser): Promise<({
         priceHistory: {
             id: bigint;
-            price: import("@prisma/client-runtime-utils").Decimal;
+            price: import("@prisma/client/runtime/library").Decimal;
             checkedAt: Date;
             targetId: string;
         }[];
     } & {
         selector: string | null;
         id: string;
+        url: string;
         createdAt: Date;
         updatedAt: Date;
-        url: string;
-        targetPrice: import("@prisma/client-runtime-utils").Decimal;
+        targetPrice: import("@prisma/client/runtime/library").Decimal;
         userId: string;
-        currentPrice: import("@prisma/client-runtime-utils").Decimal | null;
+        currentPrice: import("@prisma/client/runtime/library").Decimal | null;
         status: import(".prisma/client").$Enums.TargetStatus;
     })[]>;
     submitFallbackHtml(request: RequestWithUser, targetId: string, dto: FallbackHtmlDto): Promise<{
         priceHistory: {
             id: bigint;
-            price: import("@prisma/client-runtime-utils").Decimal;
+            price: import("@prisma/client/runtime/library").Decimal;
             checkedAt: Date;
             targetId: string;
         }[];
     } & {
         selector: string | null;
         id: string;
+        url: string;
         createdAt: Date;
         updatedAt: Date;
-        url: string;
-        targetPrice: import("@prisma/client-runtime-utils").Decimal;
+        targetPrice: import("@prisma/client/runtime/library").Decimal;
         userId: string;
-        currentPrice: import("@prisma/client-runtime-utils").Decimal | null;
+        currentPrice: import("@prisma/client/runtime/library").Decimal | null;
         status: import(".prisma/client").$Enums.TargetStatus;
     }>;
 }

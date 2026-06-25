@@ -12,7 +12,6 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.PrismaService = void 0;
 const common_1 = require("@nestjs/common");
 const config_1 = require("@nestjs/config");
-const adapter_pg_1 = require("@prisma/adapter-pg");
 const client_1 = require("@prisma/client");
 let PrismaService = class PrismaService extends client_1.PrismaClient {
     constructor(configService) {
@@ -21,7 +20,11 @@ let PrismaService = class PrismaService extends client_1.PrismaClient {
             throw new Error('DATABASE_URL is not configured');
         }
         super({
-            adapter: new adapter_pg_1.PrismaPg({ connectionString }),
+            datasources: {
+                db: {
+                    url: connectionString,
+                },
+            },
         });
     }
     async onModuleInit() {

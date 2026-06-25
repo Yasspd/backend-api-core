@@ -62,28 +62,7 @@ let TargetsService = TargetsService_1 = class TargetsService {
         }
         catch (error) {
             if (error instanceof scraper_service_1.AntiBotBlockedError) {
-                const target = await this.prismaService.target.create({
-                    data: {
-                        userId,
-                        url: dto.url,
-                        targetPrice: new client_1.Prisma.Decimal(dto.targetPrice.toFixed(2)),
-                        status: client_1.TargetStatus.FALLBACK_REQUIRED,
-                    },
-                    include: {
-                        priceHistory: {
-                            orderBy: { checkedAt: 'desc' },
-                            take: 10,
-                        },
-                    },
-                });
-                this.fallbackEventsService.emitFallbackRequired({
-                    targetId: target.id,
-                    userId: target.userId,
-                    url: target.url,
-                    reason: error.message,
-                    requiredAt: new Date(),
-                });
-                return target;
+                return this.createFallbackTarget(userId, dto, error);
             }
             throw error;
         }
@@ -211,6 +190,34 @@ let TargetsService = TargetsService_1 = class TargetsService {
             reason: error.message,
             requiredAt: new Date(),
         });
+        this.logger.warn(`Target ${target.id} switched to FALLBACK_REQUIRED for ${target.url} due to blocked status ${error.statusCode} (${error.blockType}).`);
+    }
+    async createFallbackTarget(userId, dto, error) {
+        const target = await this.prismaService.target.create({
+            data: {
+                userId,
+                url: dto.url,
+                selector: null,
+                targetPrice: new client_1.Prisma.Decimal(dto.targetPrice.toFixed(2)),
+                currentPrice: null,
+                status: client_1.TargetStatus.FALLBACK_REQUIRED,
+            },
+            include: {
+                priceHistory: {
+                    orderBy: { checkedAt: 'desc' },
+                    take: 10,
+                },
+            },
+        });
+        this.fallbackEventsService.emitFallbackRequired({
+            targetId: target.id,
+            userId: target.userId,
+            url: target.url,
+            reason: error.message,
+            requiredAt: new Date(),
+        });
+        this.logger.warn(`[TargetsService] Target tracking initialized via Hybrid Fallback due to blocked status ${error.statusCode}.`);
+        return target;
     }
     async markFailed(targetId, reason) {
         this.logger.warn(`Marking target ${targetId} as failed: ${reason}`);

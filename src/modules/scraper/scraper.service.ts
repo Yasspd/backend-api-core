@@ -24,13 +24,24 @@ interface CheerioApi {
   load(markup: string): CheerioDocument;
 }
 
+interface UpstreamFetchErrorContext {
+  statusCode: number;
+  blockType: string;
+  proxyUrl?: string;
+}
+
 export class AntiBotBlockedError extends Error {
+  readonly blockType: string;
+
   constructor(
     message: string,
     readonly statusCode: number,
     readonly proxyUrl?: string,
+    options?: { blockType?: string },
   ) {
     super(message);
+    this.name = AntiBotBlockedError.name;
+    this.blockType = options?.blockType ?? 'UPSTREAM_UNAVAILABLE';
   }
 }
 
@@ -60,6 +71,7 @@ export class ScraperService {
           https: {
             rejectUnauthorized: true,
           },
+          throwHttpErrors: false,
           retry: {
             limit: 0,
           },
@@ -95,12 +107,41 @@ export class ScraperService {
       };
     } catch (error) {
       if (error instanceof AntiBotBlockedError) {
-        this.logger.warn(`Anti-bot block detected for ${url} via ${proxyUrl ?? 'direct'} (${error.statusCode})`);
+        this.logger.warn(
+          `[Scraper] Upstream returned status ${error.statusCode} for ${url} (${error.blockType}) via ${error.proxyUrl ?? proxyUrl ?? 'direct'}. Switching target to FALLBACK_REQUIRED.`,
+        );
         throw error;
       }
 
+      const upstreamError = this.toUpstreamFetchError(proxyUrl, error);
+      if (upstreamError) {
+        this.logger.warn(
+          `[Scraper] Upstream returned status ${upstreamError.statusCode} for ${url} (${upstreamError.blockType}) via ${upstreamError.proxyUrl ?? 'direct'}. Switching target to FALLBACK_REQUIRED.`,
+        );
+        throw new AntiBotBlockedError(
+          `Upstream returned status ${upstreamError.statusCode}`,
+          upstreamError.statusCode,
+          upstreamError.proxyUrl,
+          {
+            blockType: upstreamError.blockType,
+          },
+        );
+      }
+
+      if (this.isInvalidUrlError(error)) {
+        const message = error instanceof Error ? error.message : 'Invalid target URL';
+        this.logger.error(`[Scraper] Invalid target URL ${url}: ${message}`);
+        throw new ServiceUnavailableException(`Failed to fetch target URL: ${message}`);
+      }
+
+      if (this.isDnsResolutionError(error)) {
+        const message = error instanceof Error ? error.message : 'DNS lookup failed';
+        this.logger.error(`[Scraper] DNS resolution failed for ${url}: ${message}`);
+        throw new ServiceUnavailableException(`Failed to fetch target URL: ${message}`);
+      }
+
       const message = error instanceof Error ? error.message : 'Unknown scraping error';
-      this.logger.error(`Failed to fetch ${url}: ${message}`);
+      this.logger.error(`[Scraper] Failed to fetch ${url}: ${message}`);
       throw new ServiceUnavailableException(`Failed to fetch target URL: ${message}`);
     }
   }
@@ -122,13 +163,118 @@ export class ScraperService {
   }
 
   private assertNotBlocked(statusCode: number, proxyUrl?: string): void {
-    if (statusCode === 403 || statusCode === 407) {
-      throw new AntiBotBlockedError('Anti-bot protection blocked the request', statusCode, proxyUrl);
+    if (statusCode !== 200 && statusCode !== 201) {
+      throw new AntiBotBlockedError(
+        `Upstream returned status ${statusCode}`,
+        statusCode,
+        proxyUrl,
+        {
+          blockType: this.detectBlockType(statusCode),
+        },
+      );
+    }
+  }
+
+  private detectBlockType(statusCode: number): string {
+    if (statusCode === 403 || statusCode === 407 || statusCode === 498) {
+      return 'ACCESS_BLOCKED';
     }
 
-    if (statusCode >= 400) {
-      throw new ServiceUnavailableException(`Unexpected upstream status code: ${statusCode}`);
+    if (statusCode === 429) {
+      return 'RATE_LIMITED';
     }
+
+    if (statusCode >= 500 && statusCode <= 599) {
+      return 'UPSTREAM_SERVER_ERROR';
+    }
+
+    return 'UPSTREAM_UNAVAILABLE';
+  }
+
+  private toUpstreamFetchError(
+    proxyUrl: string | undefined,
+    error: unknown,
+  ): UpstreamFetchErrorContext | null {
+    const statusCode = this.extractStatusCode(error);
+    if (statusCode === null) {
+      return null;
+    }
+
+    return {
+      statusCode,
+      blockType: this.detectBlockType(statusCode),
+      proxyUrl: this.extractProxyUrl(error) ?? proxyUrl,
+    };
+  }
+
+  private extractStatusCode(error: unknown): number | null {
+    if (!error || typeof error !== 'object') {
+      return null;
+    }
+
+    const candidates = [
+      (error as { statusCode?: unknown }).statusCode,
+      (error as { status?: unknown }).status,
+      (error as { response?: { statusCode?: unknown; status?: unknown } }).response?.statusCode,
+      (error as { response?: { statusCode?: unknown; status?: unknown } }).response?.status,
+      (error as { cause?: { statusCode?: unknown; status?: unknown } }).cause?.statusCode,
+      (error as { cause?: { statusCode?: unknown; status?: unknown } }).cause?.status,
+      (error as { cause?: { response?: { statusCode?: unknown; status?: unknown } } }).cause?.response?.statusCode,
+      (error as { cause?: { response?: { statusCode?: unknown; status?: unknown } } }).cause?.response?.status,
+    ];
+
+    for (const candidate of candidates) {
+      if (typeof candidate === 'number' && Number.isFinite(candidate)) {
+        return candidate;
+      }
+    }
+
+    return null;
+  }
+
+  private extractProxyUrl(error: unknown): string | undefined {
+    if (!error || typeof error !== 'object') {
+      return undefined;
+    }
+
+    const candidates = [
+      (error as { options?: { proxyUrl?: unknown } }).options?.proxyUrl,
+      (error as { request?: { options?: { proxyUrl?: unknown } } }).request?.options?.proxyUrl,
+      (error as { cause?: { options?: { proxyUrl?: unknown } } }).cause?.options?.proxyUrl,
+    ];
+
+    for (const candidate of candidates) {
+      if (typeof candidate === 'string' && candidate.length > 0) {
+        return candidate;
+      }
+    }
+
+    return undefined;
+  }
+
+  private isDnsResolutionError(error: unknown): boolean {
+    return this.matchesErrorCode(error, ['ENOTFOUND', 'EAI_AGAIN']);
+  }
+
+  private isInvalidUrlError(error: unknown): boolean {
+    if (error instanceof TypeError && error.message.toLowerCase().includes('invalid url')) {
+      return true;
+    }
+
+    return this.matchesErrorCode(error, ['ERR_INVALID_URL']);
+  }
+
+  private matchesErrorCode(error: unknown, codes: string[]): boolean {
+    if (!error || typeof error !== 'object') {
+      return false;
+    }
+
+    const candidates = [
+      (error as { code?: unknown }).code,
+      (error as { cause?: { code?: unknown } }).cause?.code,
+    ];
+
+    return candidates.some((candidate) => typeof candidate === 'string' && codes.includes(candidate));
   }
 
   private buildHeaders(userAgent: string): Record<string, string> {

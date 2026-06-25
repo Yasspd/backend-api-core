@@ -18,10 +18,13 @@ const price_util_1 = require("../common/utils/price.util");
 class AntiBotBlockedError extends Error {
     statusCode;
     proxyUrl;
-    constructor(message, statusCode, proxyUrl) {
+    blockType;
+    constructor(message, statusCode, proxyUrl, options) {
         super(message);
         this.statusCode = statusCode;
         this.proxyUrl = proxyUrl;
+        this.name = AntiBotBlockedError.name;
+        this.blockType = options?.blockType ?? 'UPSTREAM_UNAVAILABLE';
     }
 }
 exports.AntiBotBlockedError = AntiBotBlockedError;
@@ -50,6 +53,7 @@ let ScraperService = ScraperService_1 = class ScraperService {
                     https: {
                         rejectUnauthorized: true,
                     },
+                    throwHttpErrors: false,
                     retry: {
                         limit: 0,
                     },
@@ -80,11 +84,28 @@ let ScraperService = ScraperService_1 = class ScraperService {
         }
         catch (error) {
             if (error instanceof AntiBotBlockedError) {
-                this.logger.warn(`Anti-bot block detected for ${url} via ${proxyUrl ?? 'direct'} (${error.statusCode})`);
+                this.logger.warn(`[Scraper] Upstream returned status ${error.statusCode} for ${url} (${error.blockType}) via ${error.proxyUrl ?? proxyUrl ?? 'direct'}. Switching target to FALLBACK_REQUIRED.`);
                 throw error;
             }
+            const upstreamError = this.toUpstreamFetchError(proxyUrl, error);
+            if (upstreamError) {
+                this.logger.warn(`[Scraper] Upstream returned status ${upstreamError.statusCode} for ${url} (${upstreamError.blockType}) via ${upstreamError.proxyUrl ?? 'direct'}. Switching target to FALLBACK_REQUIRED.`);
+                throw new AntiBotBlockedError(`Upstream returned status ${upstreamError.statusCode}`, upstreamError.statusCode, upstreamError.proxyUrl, {
+                    blockType: upstreamError.blockType,
+                });
+            }
+            if (this.isInvalidUrlError(error)) {
+                const message = error instanceof Error ? error.message : 'Invalid target URL';
+                this.logger.error(`[Scraper] Invalid target URL ${url}: ${message}`);
+                throw new common_1.ServiceUnavailableException(`Failed to fetch target URL: ${message}`);
+            }
+            if (this.isDnsResolutionError(error)) {
+                const message = error instanceof Error ? error.message : 'DNS lookup failed';
+                this.logger.error(`[Scraper] DNS resolution failed for ${url}: ${message}`);
+                throw new common_1.ServiceUnavailableException(`Failed to fetch target URL: ${message}`);
+            }
             const message = error instanceof Error ? error.message : 'Unknown scraping error';
-            this.logger.error(`Failed to fetch ${url}: ${message}`);
+            this.logger.error(`[Scraper] Failed to fetch ${url}: ${message}`);
             throw new common_1.ServiceUnavailableException(`Failed to fetch target URL: ${message}`);
         }
     }
@@ -101,12 +122,90 @@ let ScraperService = ScraperService_1 = class ScraperService {
         return price;
     }
     assertNotBlocked(statusCode, proxyUrl) {
-        if (statusCode === 403 || statusCode === 407) {
-            throw new AntiBotBlockedError('Anti-bot protection blocked the request', statusCode, proxyUrl);
+        if (statusCode !== 200 && statusCode !== 201) {
+            throw new AntiBotBlockedError(`Upstream returned status ${statusCode}`, statusCode, proxyUrl, {
+                blockType: this.detectBlockType(statusCode),
+            });
         }
-        if (statusCode >= 400) {
-            throw new common_1.ServiceUnavailableException(`Unexpected upstream status code: ${statusCode}`);
+    }
+    detectBlockType(statusCode) {
+        if (statusCode === 403 || statusCode === 407 || statusCode === 498) {
+            return 'ACCESS_BLOCKED';
         }
+        if (statusCode === 429) {
+            return 'RATE_LIMITED';
+        }
+        if (statusCode >= 500 && statusCode <= 599) {
+            return 'UPSTREAM_SERVER_ERROR';
+        }
+        return 'UPSTREAM_UNAVAILABLE';
+    }
+    toUpstreamFetchError(proxyUrl, error) {
+        const statusCode = this.extractStatusCode(error);
+        if (statusCode === null) {
+            return null;
+        }
+        return {
+            statusCode,
+            blockType: this.detectBlockType(statusCode),
+            proxyUrl: this.extractProxyUrl(error) ?? proxyUrl,
+        };
+    }
+    extractStatusCode(error) {
+        if (!error || typeof error !== 'object') {
+            return null;
+        }
+        const candidates = [
+            error.statusCode,
+            error.status,
+            error.response?.statusCode,
+            error.response?.status,
+            error.cause?.statusCode,
+            error.cause?.status,
+            error.cause?.response?.statusCode,
+            error.cause?.response?.status,
+        ];
+        for (const candidate of candidates) {
+            if (typeof candidate === 'number' && Number.isFinite(candidate)) {
+                return candidate;
+            }
+        }
+        return null;
+    }
+    extractProxyUrl(error) {
+        if (!error || typeof error !== 'object') {
+            return undefined;
+        }
+        const candidates = [
+            error.options?.proxyUrl,
+            error.request?.options?.proxyUrl,
+            error.cause?.options?.proxyUrl,
+        ];
+        for (const candidate of candidates) {
+            if (typeof candidate === 'string' && candidate.length > 0) {
+                return candidate;
+            }
+        }
+        return undefined;
+    }
+    isDnsResolutionError(error) {
+        return this.matchesErrorCode(error, ['ENOTFOUND', 'EAI_AGAIN']);
+    }
+    isInvalidUrlError(error) {
+        if (error instanceof TypeError && error.message.toLowerCase().includes('invalid url')) {
+            return true;
+        }
+        return this.matchesErrorCode(error, ['ERR_INVALID_URL']);
+    }
+    matchesErrorCode(error, codes) {
+        if (!error || typeof error !== 'object') {
+            return false;
+        }
+        const candidates = [
+            error.code,
+            error.cause?.code,
+        ];
+        return candidates.some((candidate) => typeof candidate === 'string' && codes.includes(candidate));
     }
     buildHeaders(userAgent) {
         return {

@@ -24,9 +24,9 @@ export declare class TargetsService {
     } & {
         selector: string | null;
         id: string;
+        url: string;
         createdAt: Date;
         updatedAt: Date;
-        url: string;
         targetPrice: Prisma.Decimal;
         userId: string;
         currentPrice: Prisma.Decimal | null;
@@ -42,9 +42,9 @@ export declare class TargetsService {
     } & {
         selector: string | null;
         id: string;
+        url: string;
         createdAt: Date;
         updatedAt: Date;
-        url: string;
         targetPrice: Prisma.Decimal;
         userId: string;
         currentPrice: Prisma.Decimal | null;
@@ -60,9 +60,9 @@ export declare class TargetsService {
     } & {
         selector: string | null;
         id: string;
+        url: string;
         createdAt: Date;
         updatedAt: Date;
-        url: string;
         targetPrice: Prisma.Decimal;
         userId: string;
         currentPrice: Prisma.Decimal | null;
@@ -73,6 +73,7 @@ export declare class TargetsService {
     private updatePriceAndHistory;
     private resolveSelectorFromFallbackHtml;
     private markFallbackRequired;
+    private createFallbackTarget;
     private markFailed;
     private findOwnedTarget;
 }
