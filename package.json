@@ -1,6 +1,6 @@
 {
-  "name": "stealth-scape-agent-backend",
-  "version": "1.0.0",
+  "name": "Backend-API-core",
+  "version": "1.1.8",
   "description": "NestJS modular monolith backend for Stealth Scape Agent",
   "main": "dist/main.js",
   "scripts": {

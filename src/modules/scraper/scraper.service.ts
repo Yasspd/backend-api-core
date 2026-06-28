@@ -34,7 +34,7 @@ export class AntiBotBlockedError extends Error {
   readonly blockType: string;
 
   constructor(
-    message: string,
+    readonly message: string,
     readonly statusCode: number,
     readonly proxyUrl?: string,
     options?: { blockType?: string },
@@ -58,6 +58,124 @@ export class ScraperService {
   constructor(private readonly configService: ConfigService) {}
 
   async fetchHtml(url: string): Promise<FetchPageResult> {
+    const wbRegex = /wildberries\.ru\/catalog\/(\d+)\/detail(?:\.aspx)?/i;
+    const match = url.match(wbRegex);
+
+    if (match) {
+      const itemId = match[1];
+      const apiUrl = `https://card.wb.ru/cards/v1/detail?appType=1&curr=rub&dest=-1257786&nm=${itemId}`;
+      const proxyUrl = this.pickProxy();
+      const userAgent = this.pickUserAgent();
+
+      try {
+        const gotScrapingModule = this.tryLoadGotScraping();
+        if (gotScrapingModule) {
+          const client = gotScrapingModule.gotScraping.extend({
+            http2: true,
+            proxyUrl,
+            headers: {
+              ...this.buildHeaders(userAgent),
+              accept: 'application/json, text/plain, */*',
+            },
+            https: {
+              rejectUnauthorized: true,
+            },
+            throwHttpErrors: false,
+            retry: {
+              limit: 0,
+            },
+          });
+
+          const response = await client.get(apiUrl, {
+            timeout: {
+              request: 20000,
+            },
+          });
+
+          this.assertNotBlocked(response.statusCode, proxyUrl);
+
+          const payload = JSON.parse(response.body) as {
+            data?: {
+              products?: Array<{ salePriceU?: number }>;
+            };
+          };
+          const salePriceU = payload.data?.products?.[0]?.salePriceU;
+          if (typeof salePriceU !== 'number') {
+            throw new ServiceUnavailableException('Failed to fetch Wildberries price');
+          }
+
+          const price = (salePriceU / 100).toString();
+          return {
+            html: price,
+            directPrice: price,
+          };
+        }
+
+        const response = await fetch(apiUrl, {
+          headers: {
+            ...this.buildHeaders(userAgent),
+            accept: 'application/json, text/plain, */*',
+          },
+        });
+
+        this.assertNotBlocked(response.status, proxyUrl);
+
+        const payload = (await response.json()) as {
+          data?: {
+            products?: Array<{ salePriceU?: number }>;
+          };
+        };
+        const salePriceU = payload.data?.products?.[0]?.salePriceU;
+        if (typeof salePriceU !== 'number') {
+          throw new ServiceUnavailableException('Failed to fetch Wildberries price');
+        }
+
+        const price = (salePriceU / 100).toString();
+        return {
+          html: price,
+          directPrice: price,
+        };
+      } catch (error) {
+        if (error instanceof AntiBotBlockedError) {
+          this.logger.warn(
+            `[Scraper] Upstream returned status ${error.statusCode} for ${url} (${error.blockType}) via ${error.proxyUrl ?? proxyUrl ?? 'direct'}. Switching target to FALLBACK_REQUIRED.`,
+          );
+          throw error;
+        }
+
+        const upstreamError = this.toUpstreamFetchError(proxyUrl, error);
+        if (upstreamError) {
+          this.logger.warn(
+            `[Scraper] Upstream returned status ${upstreamError.statusCode} for ${url} (${upstreamError.blockType}) via ${upstreamError.proxyUrl ?? 'direct'}. Switching target to FALLBACK_REQUIRED.`,
+          );
+          throw new AntiBotBlockedError(
+            `Upstream returned status ${upstreamError.statusCode}`,
+            upstreamError.statusCode,
+            upstreamError.proxyUrl,
+            {
+              blockType: upstreamError.blockType,
+            },
+          );
+        }
+
+        if (this.isInvalidUrlError(error)) {
+          const message = error instanceof Error ? error.message : 'Invalid target URL';
+          this.logger.error(`[Scraper] Invalid target URL ${url}: ${message}`);
+          throw new ServiceUnavailableException(`Failed to fetch target URL: ${message}`);
+        }
+
+        if (this.isDnsResolutionError(error)) {
+          const message = error instanceof Error ? error.message : 'DNS lookup failed';
+          this.logger.error(`[Scraper] DNS resolution failed for ${url}: ${message}`);
+          throw new ServiceUnavailableException(`Failed to fetch target URL: ${message}`);
+        }
+
+        const message = error instanceof Error ? error.message : 'Unknown scraping error';
+        this.logger.error(`[Scraper] Failed to fetch ${url}: ${message}`);
+        throw new ServiceUnavailableException(`Failed to fetch target URL: ${message}`);
+      }
+    }
+
     const proxyUrl = this.pickProxy();
     const userAgent = this.pickUserAgent();
 
@@ -87,9 +205,6 @@ export class ScraperService {
 
         return {
           html: response.body,
-          statusCode: response.statusCode,
-          userAgent,
-          proxyUrl,
         };
       }
 
@@ -101,9 +216,6 @@ export class ScraperService {
 
       return {
         html: await response.text(),
-        statusCode: response.status,
-        userAgent,
-        proxyUrl,
       };
     } catch (error) {
       if (error instanceof AntiBotBlockedError) {
@@ -147,6 +259,9 @@ export class ScraperService {
   }
 
   extractPriceFromHtml(html: string, selector: string): string {
+    if (selector === 'DIRECT_API') {
+      return html;
+    }
     const $ = this.cheerio.load(html);
     const selection = $(selector);
 

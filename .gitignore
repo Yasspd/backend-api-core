@@ -1,4 +1,5 @@
 node_modules
+.Vscode
 .env
-dist
+Dist/
 /src/generated/prisma

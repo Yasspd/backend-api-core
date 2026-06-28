@@ -2,8 +2,11 @@
   Injectable,
   Logger,
   NotFoundException,
+  HttpException,
+  HttpStatus,
 } from '@nestjs/common';
 import { Prisma, Target, TargetStatus } from '@prisma/client';
+import * as cheerio from 'cheerio';
 import { AiService } from '../ai/ai.service';
 import { NotificationService } from '../notifications/notification.service';
 import { PrismaService } from '../prisma/prisma.service';
@@ -35,9 +38,20 @@ export class TargetsService {
   async createTarget(userId: string, dto: CreateTargetDto) {
     try {
       const fetchResult = await this.scraperService.fetchHtml(dto.url);
-      const cleanedHtml = this.aiService.cleanHtml(fetchResult.html);
-      const selector = await this.aiService.extractSelector(cleanedHtml);
-      const currentPriceValue = this.scraperService.extractPriceFromHtml(fetchResult.html, selector);
+      
+      let selector: string | null = null;
+      let currentPriceValue: string;
+
+      // Контур А: Оптимизированный прямой проход (для Wildberries API)
+      if (fetchResult.directPrice) {
+        selector = 'DIRECT_API';
+        currentPriceValue = fetchResult.directPrice;
+      } else {
+        // Контур Б: Обычные сайты с использованием ИИ
+        const cleanedHtml = this.aiService.cleanHtml(fetchResult.html);
+        selector = await this.aiService.extractSelector(cleanedHtml);
+        currentPriceValue = this.scraperService.extractPriceFromHtml(fetchResult.html, selector);
+      }
 
       return this.prismaService.target.create({
         data: {
@@ -64,7 +78,6 @@ export class TargetsService {
       if (error instanceof AntiBotBlockedError) {
         return this.createFallbackTarget(userId, dto, error);
       }
-
       throw error;
     }
   }
@@ -83,29 +96,123 @@ export class TargetsService {
   }
 
   async processFallbackHtml(userId: string, targetId: string, dto: FallbackHtmlDto) {
-    const target = await this.findOwnedTarget(userId, targetId);
-    const selector = target.selector ?? (await this.resolveSelectorFromFallbackHtml(dto.html));
-    const extractedPrice = this.scraperService.extractPriceFromHtml(dto.html, selector);
+    try {
+      this.logger.log(`[Fallback] Начинаем обработку фолбэк HTML для цели ${targetId}`);
+      if (!dto || !dto.html) {
+        throw new HttpException('HTML-содержимое пустое или отсутствует', HttpStatus.BAD_REQUEST);
+      }
+      this.logger.log(`[Fallback] Длина полученного HTML: ${dto.html.length} символов`);
+      
+      const target = await this.findOwnedTarget(userId, targetId);
+      this.logger.log(`[Fallback] Цель найдена в БД. Домен: ${target.url}`);
 
-    return this.prismaService.target.update({
-      where: { id: target.id },
-      data: {
-        selector,
-        currentPrice: new Prisma.Decimal(extractedPrice),
-        status: TargetStatus.ACTIVE,
-        priceHistory: {
-          create: {
-            price: new Prisma.Decimal(extractedPrice),
+      let selector = target.selector;
+      let extractedPrice: string | null = null;
+
+      // 1. Попытка применить уже кэшированный селектор из БД
+      if (selector) {
+        try {
+          this.logger.log(`[Fallback] Пробуем применить кэшированный селектор из БД: "${selector}"`);
+          extractedPrice = this.scraperService.extractPriceFromHtml(dto.html, selector);
+          this.logger.log(`[Fallback] Успешно извлечена цена по кэшированному селектору: "${extractedPrice}"`);
+        } catch (error) {
+          this.logger.warn(
+            `[Fallback] Сохраненный селектор "${selector}" сломался. Запускаем переопределение...`
+          );
+          selector = null; // Сбрасываем, чтобы подобрать заново
+        }
+      }
+
+      // 2. Умный локальный резолвер селекторов для известных сайтов (В обход ИИ!)
+      if (!selector) {
+        this.logger.log(`[Fallback] Селектор пуст. Запускаем локальный эвристический сканер селекторов...`);
+        
+        if (target.url.includes('wildberries.ru')) {
+          const knownWbSelectors = [
+            '.price-block__wallet-price',
+            '.price-block__final-price',
+            '.price-block__price',
+            '.price-block__count',
+            '.price-block__wallet-price-red',
+            'span[class*="wallet-price"]',
+            'span[class*="final-price"]',
+            'span[class*="price-block__price"]',
+            '.priceBlockWalletPrice--RJGuT' // Реальный обфусцированный селектор у пользователя
+          ];
+
+          const $ = cheerio.load(dto.html);
+          for (const sel of knownWbSelectors) {
+            const text = $(sel).text();
+            // Если тег найден и содержит хотя бы одну цифру (цену)
+            if (text && /\d/.test(text)) {
+              selector = sel;
+              this.logger.log(`[Fallback] Локальный сканер успешно определил селектор WB без запроса к ИИ: "${selector}"`);
+              break;
+            }
+          }
+        }
+      }
+
+      // 3. Если локальный резолвер не справился (другой сайт) — задействуем нейросеть
+      if (!selector) {
+        this.logger.log(`[Fallback] Локальные правила не подошли. Запускаем ИИ для анализа верстки...`);
+        try {
+          selector = await this.resolveSelectorFromFallbackHtml(dto.html);
+          this.logger.log(`[Fallback] ИИ успешно определил селектор: "${selector}"`);
+        } catch (aiError) {
+          this.logger.error(`[Fallback] Ошибка ИИ-сервиса (AiService): ${(aiError as Error).message}`, (aiError as Error).stack);
+          throw new Error(`Не удалось определить селектор цены через ИИ: ${(aiError as Error).message}`);
+        }
+      }
+
+      // 4. Извлекаем цену
+      if (!extractedPrice) {
+        try {
+          extractedPrice = this.scraperService.extractPriceFromHtml(dto.html, selector);
+        } catch (parseError) {
+          throw new Error(`Селектор "${selector}" найден, но извлечь по нему цену не удалось: ${(parseError as Error).message}`);
+        }
+      }
+
+      // Очищаем цену перед вставкой в Prisma Decimal
+      const cleanPriceStr = extractedPrice.replace(/[^\d.]/g, '');
+      if (!cleanPriceStr || isNaN(Number(cleanPriceStr))) {
+        throw new Error(`Извлеченная цена "${extractedPrice}" не приводится к числовому формату`);
+      }
+
+      // 5. Сохраняем изменения в базу данных
+      this.logger.log(`[Fallback] Сохраняем обновленные данные в PostgreSQL. Цена: ${cleanPriceStr} ₽`);
+      const updatedTarget = await this.prismaService.target.update({
+        where: { id: target.id },
+        data: {
+          selector,
+          currentPrice: new Prisma.Decimal(cleanPriceStr),
+          status: TargetStatus.ACTIVE,
+          priceHistory: {
+            create: {
+              price: new Prisma.Decimal(cleanPriceStr),
+            },
           },
         },
-      },
-      include: {
-        priceHistory: {
-          orderBy: { checkedAt: 'desc' },
-          take: 10,
+        include: {
+          priceHistory: {
+            orderBy: { checkedAt: 'desc' },
+            take: 10,
+          },
         },
-      },
-    });
+      });
+
+      this.logger.log(`[Fallback] База данных успешно обновлена! Цель переведена в статус ACTIVE.`);
+      return updatedTarget;
+
+    } catch (error) {
+      this.logger.error(`[Fallback] Критический сбой при обработке фолбэка: ${(error as Error).message}`, (error as Error).stack);
+      
+      throw new HttpException(
+        `Сбой фолбэка на бэкенде: ${(error as Error).message}`,
+        HttpStatus.BAD_REQUEST
+      );
+    }
   }
 
   async refreshActiveTargets(): Promise<void> {

@@ -6,6 +6,7 @@ import { json, urlencoded } from 'express';
 import { AppModule } from './app.module';
 import { PrismaService } from './modules/prisma/prisma.service';
 
+// Глобальный патч: учим JSON.stringify сериализовать числа типа BigInt
 (BigInt.prototype as any).toJSON = function () {
   return this.toString();
 };
@@ -22,7 +23,7 @@ async function bootstrap(): Promise<void> {
   const prismaService = app.get(PrismaService);
   const port = configService.get<number>('PORT') ?? 3000;
 
-  // Разрешаем CORS для безопасного общения с фронтендом и расширением
+  // Настройка CORS для безопасной связи с расширением и дашбордом
   app.enableCors({ origin: true, credentials: true });
   
   app.useGlobalPipes(
